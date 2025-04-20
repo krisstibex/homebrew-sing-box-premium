@@ -1,0 +1,27 @@
+name: Update Formula
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'  # 每小时检查一次
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Run update script
+        run: bash ./brew.sh
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Formula/sing-box-premium.rb
+          git commit -m "Update formula to latest release" || echo "No changes to commit"
+          git push
