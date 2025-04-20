@@ -3,70 +3,70 @@ name: Update Formula
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 1,15 * *'  # 每月1日与15日执行一次
+    - cron: '0 0 1,15 * *'  # 每月 1 日和 15 日自动运行
 
 jobs:
   update:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout repository
+      - name: Checkout this repo (homebrew tap)
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq curl
-
-      - name: Generate new Formula
+      - name: Fetch latest release info from sing-box-premium
+        id: release
         run: |
-          set -e
-          
-          OWNER="sb-community"
-          REPO="sing-box-premium"
+          LATEST=$(curl -s https://api.github.com/repos/sb-community/sing-box-premium/releases/latest)
+          VERSION=$(echo "$LATEST" | jq -r .tag_name)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-          ROOT_DIR="$(pwd)"
-          TEMPLATE="$ROOT_DIR/brew.rb"
-          OUTPUT="$ROOT_DIR/Formula/sing-box-premium.rb"
-          mkdir -p "$(dirname "$OUTPUT")"
+      - name: Download and calculate SHA256
+        id: sha
+        run: |
+          BASE_URL="https://github.com/sb-community/sing-box-premium/releases/download/${VERSION}"
 
-          VERSION=$(curl -s https://api.github.com/repos/$OWNER/$REPO/releases/latest | jq -r '.tag_name')
-
-          declare -A ARCHS=(
-            [darwin-arm64]="darwin-arm64"
-            [darwin-amd64]="darwin-amd64"
-            [linux-amd64]="linux-amd64"
-            [linux-armv8]="linux-armv8"
-            [linux-armv7]="linux-armv7"
+          # 定义平台和文件名
+          declare -A files=(
+            [darwin_arm]="sing-box-release-darwin-arm64.tar.gz"
+            [darwin_amd64]="sing-box-release-darwin-amd64.tar.gz"
+            [linux_amd64]="sing-box-release-linux-amd64.tar.gz"
+            [linux_armv8]="sing-box-release-linux-armv8.tar.gz"
+            [linux_armv7]="sing-box-release-linux-armv7.tar.gz"
           )
 
-          for key in "${!ARCHS[@]}"; do
-            filename="sing-box-release-${ARCHS[$key]}.tar.gz"
-            url="https://github.com/$OWNER/$REPO/releases/download/$VERSION/$filename"
-            curl -L -o "$filename" "$url"
-            sha=$(shasum -a 256 "$filename" | awk '{print $1}')
-            eval "${key^^}_URL=\"$url\""
-            eval "${key^^}_SHA=\"$sha\""
+          # 下载并计算 hash
+          for key in "${!files[@]}"; do
+            url="${BASE_URL}/${files[$key]}"
+            curl -L -o "$key.tar.gz" "$url"
+            sha=$(sha256sum "$key.tar.gz" | awk '{print $1}')
+            echo "${key}_url=${url}" >> $GITHUB_ENV
+            echo "${key}_sha=${sha}" >> $GITHUB_ENV
           done
 
+      - name: Generate Formula
+        run: |
+          TEMPLATE=brew.rb
+          OUTPUT=Formula/sing-box-premium.rb
+
+          mkdir -p Formula
+
           sed -e "s|{{version}}|$VERSION|g" \
-              -e "s|{{darwin_arm_url}}|$DARWIN_ARM64_URL|g" \
-              -e "s|{{darwin_arm_sha256}}|$DARWIN_ARM64_SHA|g" \
-              -e "s|{{darwin_amd64_url}}|$DARWIN_AMD64_URL|g" \
-              -e "s|{{darwin_amd64_sha256}}|$DARWIN_AMD64_SHA|g" \
-              -e "s|{{linux_amd64_url}}|$LINUX_AMD64_URL|g" \
-              -e "s|{{linux_amd64_sha256}}|$LINUX_AMD64_SHA|g" \
-              -e "s|{{linux_armv8_url}}|$LINUX_ARMV8_URL|g" \
-              -e "s|{{linux_armv8_sha256}}|$LINUX_ARMV8_SHA|g" \
-              -e "s|{{linux_armv7_url}}|$LINUX_ARMV7_URL|g" \
-              -e "s|{{linux_armv7_sha256}}|$LINUX_ARMV7_SHA|g" \
+              -e "s|{{darwin_arm_url}}|\"$darwin_arm_url\"|g" \
+              -e "s|{{darwin_arm_sha256}}|$darwin_arm_sha|g" \
+              -e "s|{{darwin_amd64_url}}|\"$darwin_amd64_url\"|g" \
+              -e "s|{{darwin_amd64_sha256}}|$darwin_amd64_sha|g" \
+              -e "s|{{linux_amd64_url}}|\"$linux_amd64_url\"|g" \
+              -e "s|{{linux_amd64_sha256}}|$linux_amd64_sha|g" \
+              -e "s|{{linux_armv8_url}}|\"$linux_armv8_url\"|g" \
+              -e "s|{{linux_armv8_sha256}}|$linux_armv8_sha|g" \
+              -e "s|{{linux_armv7_url}}|\"$linux_armv7_url\"|g" \
+              -e "s|{{linux_armv7_sha256}}|$linux_armv7_sha|g" \
               "$TEMPLATE" > "$OUTPUT"
 
-      - name: Commit and push changes
+      - name: Commit and Push
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add Formula/sing-box-premium.rb
-          git commit -m "Update formula to latest release" || echo "No changes to commit"
+          git commit -m "Update formula to version $VERSION" || echo "No changes"
           git push
