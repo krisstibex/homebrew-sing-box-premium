@@ -63,10 +63,14 @@ jobs:
               -e "s|{{linux_armv7_sha256}}|$linux_armv7_sha|g" \
               "$TEMPLATE" > "$OUTPUT"
 
-      - name: Commit and Push
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add Formula/sing-box-premium.rb
-          git commit -m "Update formula to version $VERSION" || echo "No changes"
-          git push
+            - name: Commit and Push
+              run: |
+                git config user.name "GitHub Actions"
+                git config user.email "actions@github.com"
+          
+                # 重新设置 remote 为 sb-community 的仓库
+                git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/sb-community/homebrew-sing-box-premium.git
+
+                git add Formula/sing-box-premium.rb
+                git commit -m "Update formula to version $VERSION" || echo "No changes"
+                git push origin HEAD:main
