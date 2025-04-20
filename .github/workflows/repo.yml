@@ -3,20 +3,65 @@ name: Update Formula
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 1,15 * *'
+    - cron: '0 0 1,15 * *'  # 每月1日与15日执行一次
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq curl
 
-      - name: Run update script
-        run: bash ./brew.sh
+      - name: Generate new Formula
+        run: |
+          set -e
+          
+          OWNER="sb-community"
+          REPO="sing-box-premium"
+
+          ROOT_DIR="$(pwd)"
+          TEMPLATE="$ROOT_DIR/brew.rb"
+          OUTPUT="$ROOT_DIR/Formula/sing-box-premium.rb"
+          mkdir -p "$(dirname "$OUTPUT")"
+
+          VERSION=$(curl -s https://api.github.com/repos/$OWNER/$REPO/releases/latest | jq -r '.tag_name')
+
+          declare -A ARCHS=(
+            [darwin-arm64]="darwin-arm64"
+            [darwin-amd64]="darwin-amd64"
+            [linux-amd64]="linux-amd64"
+            [linux-armv8]="linux-armv8"
+            [linux-armv7]="linux-armv7"
+          )
+
+          for key in "${!ARCHS[@]}"; do
+            filename="sing-box-release-${ARCHS[$key]}.tar.gz"
+            url="https://github.com/$OWNER/$REPO/releases/download/$VERSION/$filename"
+            curl -L -o "$filename" "$url"
+            sha=$(shasum -a 256 "$filename" | awk '{print $1}')
+            eval "${key^^}_URL=\"$url\""
+            eval "${key^^}_SHA=\"$sha\""
+          done
+
+          sed -e "s|{{version}}|$VERSION|g" \
+              -e "s|{{darwin_arm_url}}|$DARWIN_ARM64_URL|g" \
+              -e "s|{{darwin_arm_sha256}}|$DARWIN_ARM64_SHA|g" \
+              -e "s|{{darwin_amd64_url}}|$DARWIN_AMD64_URL|g" \
+              -e "s|{{darwin_amd64_sha256}}|$DARWIN_AMD64_SHA|g" \
+              -e "s|{{linux_amd64_url}}|$LINUX_AMD64_URL|g" \
+              -e "s|{{linux_amd64_sha256}}|$LINUX_AMD64_SHA|g" \
+              -e "s|{{linux_armv8_url}}|$LINUX_ARMV8_URL|g" \
+              -e "s|{{linux_armv8_sha256}}|$LINUX_ARMV8_SHA|g" \
+              -e "s|{{linux_armv7_url}}|$LINUX_ARMV7_URL|g" \
+              -e "s|{{linux_armv7_sha256}}|$LINUX_ARMV7_SHA|g" \
+              "$TEMPLATE" > "$OUTPUT"
 
       - name: Commit and push changes
         run: |
